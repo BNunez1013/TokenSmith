@@ -73,9 +73,10 @@ def get_page_numbers(chunk_indices: list[int], metadata: list[dict]) -> dict[int
 
 # -------------------------- Filtering logic -----------------------------
 
-def filter_retrieved_chunks(cfg: RAGConfig, chunks, ordered):
-    topk_idxs = ordered[:cfg.top_k]
-    return topk_idxs
+def filter_retrieved_chunks(cfg: RAGConfig, chunks: list[str], ordered_ids: list[int], ordered_scores: list[float], metadata: list[dict] | None = None, ) -> tuple[list[int], list[float]]:
+    topk_idxs = ordered_ids[:cfg.top_k]
+    topk_scores = ordered_scores[:cfg.top_k]
+    return topk_idxs, topk_scores
 
 # -------------------------- Retrieval core ------------------------------
 

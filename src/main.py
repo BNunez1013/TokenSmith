@@ -118,6 +118,7 @@ def get_answer(
     ranked_chunks: List[str] = []
     topk_idxs: List[int] = []
     scores = []
+    selected_scores = []
     
     # Step 1: Get chunks (golden, retrieved, or none)
     chunks_info = None
@@ -150,7 +151,10 @@ def get_answer(
         ordered, scores = ranker.rank(raw_scores=raw_scores)
         # print(f"Ordered candidate indices after ranking: {ordered[:cfg.top_k]}")
         # print(f"Corresponding scores: {scores[:cfg.top_k]}")
-        topk_idxs = filter_retrieved_chunks(cfg, chunks, ordered)
+        # after ranking, we take only selector_pool_size amount of values as our oversize metadata pool
+        selector_ids = ordered[:cfg.selector_pool_size]
+        selector_scores = scores[:cfg.selector_pool_size]
+        topk_idxs, selected_scores = filter_retrieved_chunks(cfg, chunks, selector_ids, selector_scores, artifacts.get("meta"))
         ranked_chunks = [chunks[i] for i in topk_idxs]
         # print(f"Top-{cfg.top_k} chunk indices after filtering: {topk_idxs}")
         # print("Len Ranked chunks:", len(ranked_chunks))
@@ -236,14 +240,14 @@ def get_answer(
         logger.save_chat_log(
             query=question,
             config_state=cfg.get_config_state(),
-            ordered_scores=scores[:len(topk_idxs)] if 'scores' in locals() else [],
+            ordered_scores=selected_scores if 'selected_scores' in locals() else [],
             chat_request_params={
                 "system_prompt": system_prompt,
                 "max_tokens": cfg.max_gen_tokens
             },
             top_idxs=topk_idxs,
-            chunks=chunks,
-            sources=sources,
+            chunks=[chunks[i] for i in topk_idxs],
+            sources=[sources[i] for i in topk_idxs],
             page_map=page_nums,
             full_response=ans,
             top_k=len(topk_idxs),

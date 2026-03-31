@@ -29,6 +29,10 @@ class RAGConfig:
     rerank_mode: str = ""
     rerank_top_k: int = 5
 
+    selector_pool_size: int = 20
+    use_section_diversity: bool = False
+    max_chunks_per_section: int = 2
+
     # generation
     max_gen_tokens: int = 400
     gen_model: str = "models/qwen2.5-3b-instruct-q8_0.gguf"
@@ -65,12 +69,15 @@ class RAGConfig:
         """Validation logic runs automatically after initialization."""
         assert self.top_k > 0, "top_k must be > 0"
         assert self.num_candidates >= self.top_k, "num_candidates must be >= top_k"
+        assert self.num_candidates >= self.selector_pool_size, "num candidates must be >= selector pool size"
         assert self.ensemble_method.lower() in {"linear","weighted","rrf"}
         if self.ensemble_method.lower() in {"linear","weighted"}:
             s = sum(self.ranker_weights.values()) or 1.0
             self.ranker_weights = {k: v/s for k, v in self.ranker_weights.items()}
         self.chunk_config = self.get_chunk_config()
         self.chunk_config.validate()
+        assert self.selector_pool_size >= self.top_k, "selector pool size must be >= top_k"
+        assert self.max_chunks_per_section > 0, "max chunks per section must be > 0"
 
     # ---------- chunking + artifact name helpers ----------
 

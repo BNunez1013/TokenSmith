@@ -121,7 +121,7 @@ def _create_log(chunks , sources , topk_idxs, ordered_ranked_scores, page_nums, 
     except Exception as log_exc:
         return False
 
-def _retrieve_and_rank(query: str, top_k: Optional[int] = None):
+def _retrieve_and_rank(query: str, top_k: Optional[int] = None, selector_pool_size: Optional[int] = None):
     chunks = _artifacts["chunks"]
     effective_top_k = top_k if top_k is not None else _config.top_k
     pool_n = max(_config.num_candidates, effective_top_k + 10)
@@ -132,14 +132,15 @@ def _retrieve_and_rank(query: str, top_k: Optional[int] = None):
 
     ordered_ids, ordered_scores = _ranker.rank(raw_scores=raw_scores)
 
-    if top_k is not None:
-        ordered_ids = ordered_ids[:top_k]
-        ordered_scores = ordered_scores[:top_k]
+    if selector_pool_size is not None:
+        ordered_ids = ordered_ids[:selector_pool_size]
+        ordered_scores = ordered_scores[:selector_pool_size]
     else:
-        ordered_ids = ordered_ids[:_config.top_k]
-        ordered_scores = ordered_scores[:_config.top_k]
+        ordered_ids = ordered_ids[:_config.selector_pool_size]
+        ordered_scores = ordered_scores[:_config.selector_pool_size]
 
-    return ordered_ids, ordered_scores
+    topk_indexes, topk_indexes_scores = filter_retrieved_chunks(_config, chunks, ordered_ids, ordered_scores, _artifacts.get("meta"))
+    return topk_indexes, topk_indexes_scores
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
