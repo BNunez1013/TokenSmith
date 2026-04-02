@@ -1,0 +1,196 @@
+from dataclasses import replace
+from pathlib import Path
+import yaml
+
+from src.config import RAGConfig
+from src.retriever import load_artifacts, FAISSRetriever, BM25Retriever, IndexKeywordRetriever, filter_retrieved_chunks
+from src.ranking.ranker import EnsembleRanker
+
+from typing import Dict, Any, TypedDict
+
+INDEX_PREFIX = "textbook_index"
+
+ChunkID = int
+Score = float
+MetadataRecord = dict[str, Any]
+
+class RetrievalResult(TypedDict):
+    selected_chunk_ids: list[ChunkID]
+    selected_scores: list[Score]
+    selected_sections: list[str]
+
+class BenchmarkResult(TypedDict):
+    benchmark_id: str
+    question: str
+    selected_chunk_ids: list[int]
+    selected_scores: list[float]
+    selected_sections: list[str]
+    ideal_retrieved_chunks: list[int]
+    section_coverage: int
+    ground_truth_in_k: float
+    notes: str
+
+class ConfigEvaluationResult(TypedDict):
+    label: str
+    avg_section_coverage: float
+    avg_ground_truth_in_k: float
+    results: list[BenchmarkResult]
+
+def load_metadata_benchmarks(path: str | Path) -> list[dict]:
+    path = Path(path)
+
+    with path.open("r") as f:
+        data = yaml.safe_load(f)
+    
+    if not isinstance(data, dict):
+        raise ValueError("Benchmarks file must contain a top-level mapping")
+
+    benchmarks = data.get("benchmarks")
+    if not isinstance(benchmarks, list):
+        raise ValueError("Benchmarks file must contain a 'benchmark' list.")
+    
+    validated = []
+    for i, item in enumerate(benchmarks):
+        if not isinstance(item, dict):
+            raise ValueError(f"Benchmark at index {i} must be a mapping.")
+
+        benchmark_id = item.get("id")
+        question = item.get("question")
+        ideal_chunks = item.get("ideal_retrieved_chunks")
+
+        if not isinstance(benchmark_id, str) or not benchmark_id.strip():
+            raise ValueError(f"Benchmark at index {i} does not have valid id")
+        if not isinstance(question, str) or not question.strip():
+            raise ValueError(f"Benchmark at index {i} does not have a valid question")
+        if not isinstance(ideal_chunks, list) or not all(isinstance(x, int) for x in ideal_chunks):
+            raise ValueError(f"Benchmark {benchmark_id} must have valid list of ints for ideal chunks")
+        
+        validated.append(item)
+    return validated
+
+def build_retrieval_pipeline(cfg: RAGConfig):
+    artifacts_dir = cfg.get_artifacts_directory()
+    faiss_idx, bm25_idx, chunks, sources, metadata = load_artifacts(artifacts_dir, INDEX_PREFIX)
+
+    retrievers = [FAISSRetriever(faiss_idx, cfg.embed_model), BM25Retriever(bm25_idx),]
+    if cfg.ranker_weights.get("index_keywords", 0) > 0:
+        retrievers.append(IndexKeywordRetriever(cfg.extracted_index_path, cfg.page_to_chunk_map_path))
+    
+    ranker = EnsembleRanker(cfg.ensemble_method, cfg.ranker_weights, int(cfg.rrf_k))
+
+    return chunks, metadata, retrievers, ranker
+
+def retrieve_chunks_for_query(question: str, cfg: RAGConfig, chunks: list[str], metadata: list[MetadataRecord], retrievers: list[Any], ranker: EnsembleRanker) -> RetrievalResult:
+    raw_scores: Dict[str, Dict[int, float]] = {}
+    for retriever in retrievers:
+        raw_scores[retriever.name] = retriever.get_scores(question, cfg.num_candidates, chunks)
+    ordered_ids, ordered_scores = ranker.rank(raw_scores=raw_scores)
+    selector_ids = ordered_ids[:cfg.selector_pool_size]
+    selector_scores = ordered_scores[:cfg.selector_pool_size]
+    topk_idxs, selected_scores = filter_retrieved_chunks(cfg, chunks, selector_ids, selector_scores, metadata)
+
+    selected_sections = [
+        metadata[idx].get("section_path", "")
+        for idx in topk_idxs
+        if 0 <= idx < len(metadata)
+    ]
+
+    return {
+        "selected_chunk_ids": topk_idxs,
+        "selected_scores": selected_scores,
+        "selected_sections": selected_sections
+    }
+
+
+def compute_section_coverage(selected_sections: list[str]) -> int:
+    sections_normalized = [section for section in selected_sections if section]
+    return len(set(sections_normalized))
+
+def compute_ground_truth_in_k(selected_ids: list[int], ideal_ids: list[int]) -> float:
+    unique_selected = set(selected_ids)
+    unique_ideal = set(ideal_ids)
+    if not unique_ideal:
+        return 0.0
+    intersection_size = len(unique_selected & unique_ideal)
+    return intersection_size / len(unique_ideal)
+
+def evaluate_config(benchmarks: list[dict[str, Any]], cfg: RAGConfig, label: str) -> ConfigEvaluationResult:
+    chunks, metadata, retrievers, ranker = build_retrieval_pipeline(cfg=cfg)
+    results: list[BenchmarkResult] = []
+
+    for benchmark in benchmarks:
+        question = benchmark["question"]
+        ideal_ids = benchmark["ideal_retrieved_chunks"]
+
+        retrieval_result = retrieve_chunks_for_query(
+            question=question,
+            cfg=cfg,
+            chunks=chunks,
+            metadata=metadata,
+            retrievers=retrievers,
+            ranker=ranker
+        )
+
+        section_coverage = compute_section_coverage(retrieval_result["selected_sections"])
+        ground_truth_in_k = compute_ground_truth_in_k(retrieval_result["selected_chunk_ids"], ideal_ids)
+
+        results.append({
+            "benchmark_id": benchmark["id"],
+            "question": question,
+            "selected_chunk_ids": retrieval_result["selected_chunk_ids"],
+            "selected_scores": retrieval_result["selected_scores"],
+            "selected_sections": retrieval_result["selected_sections"],
+            "ideal_retrieved_chunks": ideal_ids,
+            "section_coverage": section_coverage,
+            "ground_truth_in_k": ground_truth_in_k,
+            "notes": benchmark.get("notes", "")
+        })
+    
+    if not results:
+        return {
+            "label": label,
+            "avg_section_coverage": 0.0,
+            "avg_ground_truth_in_k": 0.0,
+            "results": []
+        }
+    
+    avg_section_coverage = sum(result["section_coverage"] for result in results) / len(results)
+    avg_ground_truth_in_k = sum(result["ground_truth_in_k"] for result in results) / len(results)
+
+    return {
+        "label": label,
+        "avg_section_coverage": avg_section_coverage,
+        "avg_ground_truth_in_k": avg_ground_truth_in_k,
+        "results": results
+    }
+
+
+def main():
+    benchmark_path = Path("tests/metadata-retrieval-benchmarks.yaml")
+    benchmarks = load_metadata_benchmarks(benchmark_path)
+
+    base_cfg = RAGConfig()
+
+    eval_configs = [
+        ("baseline_pool20", replace(base_cfg, use_section_diversity=False, selector_pool_size=20)),
+        ("max_chunks1_pool15", replace(base_cfg, use_section_diversity=True, max_chunks_per_section=1, selector_pool_size=15)),
+        ("max_chunks1_pool20", replace(base_cfg, use_section_diversity=True, max_chunks_per_section=1, selector_pool_size=20)),
+        ("max_chunks1_pool30", replace(base_cfg, use_section_diversity=True, max_chunks_per_section=1, selector_pool_size=30)),
+        ("max_chunks2_pool20", replace(base_cfg, use_section_diversity=True, max_chunks_per_section=2, selector_pool_size=20))
+    ]
+
+    summaries = []
+    for label, cfg in eval_configs:
+        summaries.append(evaluate_config(benchmarks, cfg, label))
+
+    print("\nMetadata Retrieval Evaluation")
+    print("=" * 80)
+    for summary in summaries:
+        print(
+            f"{summary['label']}: "
+            f"avg_section_coverage={summary['avg_section_coverage']:.3f}, "
+            f"avg_ground_truth_in_k={summary['avg_ground_truth_in_k']:.3f}"
+        )
+
+if __name__ == "__main__":
+    main()

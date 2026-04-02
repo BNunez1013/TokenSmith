@@ -73,10 +73,49 @@ def get_page_numbers(chunk_indices: list[int], metadata: list[dict]) -> dict[int
 
 # -------------------------- Filtering logic -----------------------------
 
-def filter_retrieved_chunks(cfg: RAGConfig, chunks: list[str], ordered_ids: list[int], ordered_scores: list[float], metadata: list[dict] | None = None, ) -> tuple[list[int], list[float]]:
-    topk_idxs = ordered_ids[:cfg.top_k]
-    topk_scores = ordered_scores[:cfg.top_k]
-    return topk_idxs, topk_scores
+def filter_retrieved_chunks(cfg: RAGConfig, chunks: list[str], ordered_ids: list[int], 
+                            ordered_scores: list[float], metadata: list[dict] | None = None, ) -> tuple[list[int], list[float]]:
+    
+    # If use_section_diversity is false, fall back to defualt topk
+    if not cfg.use_section_diversity or metadata is None or len(ordered_ids) != len(ordered_scores):
+        topk_idxs = ordered_ids[:cfg.top_k]
+        topk_scores = ordered_scores[:cfg.top_k]
+        return topk_idxs, topk_scores
+    
+    selected_ids = []
+    selected_scores = []
+    selected_set = set()
+    section_counts = {}
+
+    # First pass with use_section_diversity, adds chunk ids and scores when possible
+    for idx, score in zip(ordered_ids, ordered_scores):
+        if len(selected_ids) >= cfg.top_k:
+            break
+        if idx < 0 or idx >= len(metadata):
+            continue
+
+        section_path = metadata[idx].get("section_path")
+        if section_counts.get(section_path, 0) >= cfg.max_chunks_per_section:
+            continue
+
+        selected_ids.append(idx)
+        selected_scores.append(score)
+        selected_set.add(idx)
+        section_counts[section_path] = section_counts.get(section_path, 0) + 1
+
+    # Second pass to fill remaining topk if first pass cannot due to max_chunks_per_section constraint
+    for idx, score in zip(ordered_ids, ordered_scores):
+        if len(selected_ids) >= cfg.top_k:
+            break
+        if idx in selected_set:
+            continue
+        selected_ids.append(idx)
+        selected_scores.append(score)
+        selected_set.add(idx)
+    
+    return selected_ids, selected_scores
+
+
 
 # -------------------------- Retrieval core ------------------------------
 

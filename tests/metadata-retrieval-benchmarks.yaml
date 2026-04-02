@@ -1,0 +1,37 @@
+benchmarks:
+  - id: "concurrency_control"
+    level: 2
+    question: "What are key differences between locked based protocols and timestamp based protocols?"
+    ideal_retrieved_chunks: [1087, 1094, 1127, 1129]
+    notes: "Needs to go across two subsections of same chapter, look at Lock_Based and Timestamp Ordering"
+  - id: "buffer_manager_query_processing"
+    level: 2
+    question: "How does the buffer replacement policy in the database buffer manager relate to query processing performance?"
+    ideal_retrieved_chunks: [780, 781, 893, 894]
+    notes: "Needs to check across chapters 13 and 15 to get infomation on both buffer manager and query processing performance"
+  - id: "basic_recovery_vs_aires"
+    level: 2
+    question: "Compare the basic recovery algorithm using checkpointing with the ARIES recovery protocol."
+    ideal_retrieved_chunks: [1210, 1211, 1242, 1248, 1249, 1250]
+    notes: "Needs to check subsections of chapter 19, tests the backfill well"
+  - id: "snapshot_isolation_vs_traditional_serializability"
+    level: 2
+    question: "How does snapshot isolation differ from traditional serializability, and what anomalies can occur under each?"
+    ideal_retrieved_chunks: [1066, 1067, 1143, 1145, 1148, 1149]
+    notes: "Must look across small distance subsections to give information on both topics"
+  - id: "row_storage_vs_column"
+    level: 2
+    question: "Compare row-oriented storage with column-oriented storage and explain when each is preferred."
+    ideal_retrieved_chunks: [793, 794, 798, 799]
+    notes: "Must touch on both implementations and how each benefits design, and shortfalls"
+  - id: "optimistic_pessimistic_concurrency_control"
+    level: 2
+    question: "Compare optimistic (validation-based) concurrency control with pessimistic (lock-based) concurrency control."
+    ideal_retrieved_chunks: [1087, 1094, 1097, 1132, 1133, 1136]
+    notes: "Answer must span across two sections of the same chapter. Moderately spaced."
+  - id: "oltp_vs_analytics"
+    level: 2
+    question: "Contrast the goals of Online Transaction Processing and data analytics"
+    ideal_retrieved_chunks: [661, 662, 663, 1661]
+    notes: "Answer spans multiple sections across large distances, section diversity should perform better"
+
