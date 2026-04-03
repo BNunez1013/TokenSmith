@@ -1,6 +1,7 @@
 from dataclasses import replace
 from pathlib import Path
 import yaml
+import json
 
 from src.config import RAGConfig
 from src.retriever import load_artifacts, FAISSRetriever, BM25Retriever, IndexKeywordRetriever, filter_retrieved_chunks
@@ -18,6 +19,7 @@ class RetrievalResult(TypedDict):
     selected_chunk_ids: list[ChunkID]
     selected_scores: list[Score]
     selected_sections: list[str]
+    fused_chunk_ids: list[ChunkID]
 
 class BenchmarkResult(TypedDict):
     benchmark_id: str
@@ -29,6 +31,7 @@ class BenchmarkResult(TypedDict):
     section_coverage: int
     ground_truth_in_k: float
     notes: str
+    ground_truth_in_fused: float
 
 class ConfigEvaluationResult(TypedDict):
     label: str
@@ -98,7 +101,8 @@ def retrieve_chunks_for_query(question: str, cfg: RAGConfig, chunks: list[str], 
     return {
         "selected_chunk_ids": topk_idxs,
         "selected_scores": selected_scores,
-        "selected_sections": selected_sections
+        "selected_sections": selected_sections,
+        "fused_chunk_ids": ordered_ids
     }
 
 
@@ -112,6 +116,14 @@ def compute_ground_truth_in_k(selected_ids: list[int], ideal_ids: list[int]) -> 
     if not unique_ideal:
         return 0.0
     intersection_size = len(unique_selected & unique_ideal)
+    return intersection_size / len(unique_ideal)
+
+def compute_ground_truth_in_fused(fused_chunk_ids: list[ChunkID], ideal_ids: list[int]) -> float:
+    unique_fused = set(fused_chunk_ids)
+    unique_ideal = set(ideal_ids)
+    if not unique_ideal:
+        return 0.0
+    intersection_size = len(unique_ideal & unique_fused)
     return intersection_size / len(unique_ideal)
 
 def evaluate_config(benchmarks: list[dict[str, Any]], cfg: RAGConfig, label: str) -> ConfigEvaluationResult:
@@ -133,6 +145,7 @@ def evaluate_config(benchmarks: list[dict[str, Any]], cfg: RAGConfig, label: str
 
         section_coverage = compute_section_coverage(retrieval_result["selected_sections"])
         ground_truth_in_k = compute_ground_truth_in_k(retrieval_result["selected_chunk_ids"], ideal_ids)
+        ground_truth_in_fused = compute_ground_truth_in_fused(retrieval_result["fused_chunk_ids"], ideal_ids)
 
         results.append({
             "benchmark_id": benchmark["id"],
@@ -143,7 +156,8 @@ def evaluate_config(benchmarks: list[dict[str, Any]], cfg: RAGConfig, label: str
             "ideal_retrieved_chunks": ideal_ids,
             "section_coverage": section_coverage,
             "ground_truth_in_k": ground_truth_in_k,
-            "notes": benchmark.get("notes", "")
+            "notes": benchmark.get("notes", ""),
+            "ground_truth_in_fused": ground_truth_in_fused
         })
     
     if not results:
@@ -191,6 +205,29 @@ def main():
             f"avg_section_coverage={summary['avg_section_coverage']:.3f}, "
             f"avg_ground_truth_in_k={summary['avg_ground_truth_in_k']:.3f}"
         )
+        if summary['label'] == "baseline_pool20" or summary['label'] == "max_chunks1_pool15":
+            for result in summary['results']:
+                print(f"Results for {summary['label']}:")
+                print("=" * 80)
+                print(f"BenchmarkID: {result['benchmark_id']} \n"
+                      f"Selected Chunk Ids: {result['selected_chunk_ids']} \n"
+                      f"Ideal Chunk Ids: {result['ideal_retrieved_chunks']} \n"
+                      f"Section Coverage: {result['section_coverage']} \n"
+                      f"Ground Truth in k: {result['ground_truth_in_k']} \n"
+                      f"Ground Truth in Fused: {result['ground_truth_in_fused']}")
+                
+    results_dir = Path("tests/results")
+    results_dir.mkdir(parents=True, exist_ok=True)
+    output_path = results_dir / "metadata_retrieval_results.json"
+    with output_path.open("w") as f:
+       payload = {
+           "benchmark_file": str(benchmark_path),
+           "index_prefix": INDEX_PREFIX,
+           "summary": summaries
+       }
+       json.dump(payload, f, indent=2)
+
+    print(f"\nSaved results to {output_path}")
 
 if __name__ == "__main__":
     main()
