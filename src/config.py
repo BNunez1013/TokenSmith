@@ -33,6 +33,10 @@ class RAGConfig:
     use_section_diversity: bool = False
     max_chunks_per_section: int = 2
 
+    use_context_boosting: bool = False
+    neighbor_boost: float = 0.3
+    context_boost_top_N: int = 5
+
     # generation
     max_gen_tokens: int = 400
     gen_model: str = "models/qwen2.5-3b-instruct-q8_0.gguf"
@@ -78,6 +82,8 @@ class RAGConfig:
         self.chunk_config.validate()
         assert self.selector_pool_size >= self.top_k, "selector pool size must be >= top_k"
         assert self.max_chunks_per_section > 0, "max chunks per section must be > 0"
+        assert self.context_boost_top_N >= 0, "context_boost_top_N must be >= 0"
+        assert self.neighbor_boost >= 0, "neighbor_boost must be >= 0"
 
     # ---------- chunking + artifact name helpers ----------
 

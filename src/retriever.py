@@ -33,7 +33,83 @@ def _get_embedder(model_name: str) -> CachedEmbedder:
         _EMBED_CACHE[model_name] = CachedEmbedder(model_name)
     return _EMBED_CACHE[model_name]
 
+# -------------------------- Retriever helpers ------------------------------
 
+def _select_baseline_top_k(cfg: RAGConfig, ordered_ids: list[int], ordered_scores: list[float]) -> tuple[list[int], list[float]]:
+    return ordered_ids[:cfg.top_k], ordered_scores[:cfg.top_k]
+
+def _metadata_selector_enabled(cfg: RAGConfig) -> bool:
+    return (
+        cfg.use_section_diversity or cfg.use_context_boosting
+    )
+
+def _apply_context_boosting(cfg: RAGConfig, ordered_ids: list[int], ordered_scores: list[float],
+                            objective_scores: dict[int, float]) -> None:
+    for idx, score in zip(ordered_ids[:cfg.context_boost_top_N], ordered_scores[:cfg.context_boost_top_N]):
+        for neighbor in (idx-1, idx+1):
+            if neighbor in objective_scores:
+                objective_scores[neighbor] += score * cfg.neighbor_boost
+
+def _compute_objective_scores(cfg: RAGConfig, ordered_ids: list[int], ordered_scores: list[float],
+                              metadata: list[dict], chunks: list[str]) -> dict[int, float]:
+    objective_scores = dict(zip(ordered_ids, ordered_scores))
+
+    if cfg.use_context_boosting:
+        _apply_context_boosting(cfg, ordered_ids, ordered_scores, objective_scores)
+
+    return objective_scores
+
+def _rank_chunk_candidates(ordered_ids: list[int], objective_scores: dict[int, float]) -> list[int]:
+    return sorted(ordered_ids, key=lambda idx: objective_scores.get(idx, 0.0), reverse=True)
+
+def _passes_constraints(cfg: RAGConfig, idx: int, metadata: list[dict], section_counts: dict[str, int]) -> bool:
+    if cfg.use_section_diversity:
+        section_path = metadata[idx].get("section_path")
+        if not section_path:
+            section_path = "missing_section"
+        if section_counts.get(section_path, 0) >= cfg.max_chunks_per_section:
+            return False
+    return True
+
+def _greedy_selection_with_constraints(cfg: RAGConfig, ranked_candidates: list[int], objective_score: dict[int, float],
+                                       metadata: list[dict]) -> tuple[list[int], list[float]]:
+    selected_ids: list[int] = []
+    selected_scores: list[float] = []
+    section_counts: dict[str, int] = {}
+
+    for idx in ranked_candidates:
+        if len(selected_ids) >= cfg.top_k:
+            break
+        if idx < 0 or idx >= len(metadata):
+            continue
+
+        if not _passes_constraints(cfg, idx, metadata, section_counts):
+            continue
+        selected_ids.append(idx)
+        selected_scores.append(objective_score.get(idx, 0.0))
+
+        if cfg.use_section_diversity:
+            section_path = metadata[idx].get("section_path")
+            if not section_path:
+                section_path = "missing_section"
+            section_counts[section_path] = section_counts.get(section_path, 0) + 1
+        
+    return selected_ids, selected_scores
+
+def _backfill_selection(cfg: RAGConfig, selected_ids: list[int], selected_scores: list[float],
+                        ranked_candidates: list[int], objective_scores: dict[int, float]) -> tuple[list[int], list[float]]:
+    selected_set = set(selected_ids)
+    for idx in ranked_candidates:
+        if len(selected_set) >= cfg.top_k:
+            break
+        if idx in selected_set:
+            continue
+
+        selected_ids.append(idx)
+        selected_scores.append(objective_scores.get(idx, 0))
+        selected_set.add(idx)
+    
+    return selected_ids, selected_scores
 # -------------------------- Read artifacts -------------------------------
 
 def load_artifacts(artifacts_dir: os.PathLike, index_prefix: str) -> Tuple[faiss.Index, List[str], List[str], Any]:
@@ -76,46 +152,19 @@ def get_page_numbers(chunk_indices: list[int], metadata: list[dict]) -> dict[int
 def filter_retrieved_chunks(cfg: RAGConfig, chunks: list[str], ordered_ids: list[int], 
                             ordered_scores: list[float], metadata: list[dict] | None = None, ) -> tuple[list[int], list[float]]:
     
-    # If use_section_diversity is false, fall back to defualt topk
-    if not cfg.use_section_diversity or metadata is None or len(ordered_ids) != len(ordered_scores):
-        topk_idxs = ordered_ids[:cfg.top_k]
-        topk_scores = ordered_scores[:cfg.top_k]
-        return topk_idxs, topk_scores
+    baseline = _select_baseline_top_k(cfg, ordered_ids, ordered_scores)
+
+    if metadata is None or len(ordered_ids) != len(ordered_scores):
+        return baseline
     
-    selected_ids = []
-    selected_scores = []
-    selected_set = set()
-    section_counts = {}
-
-    # First pass with use_section_diversity, adds chunk ids and scores when possible
-    for idx, score in zip(ordered_ids, ordered_scores):
-        if len(selected_ids) >= cfg.top_k:
-            break
-        if idx < 0 or idx >= len(metadata):
-            continue
-
-        section_path = metadata[idx].get("section_path")
-        if section_counts.get(section_path, 0) >= cfg.max_chunks_per_section:
-            continue
-
-        selected_ids.append(idx)
-        selected_scores.append(score)
-        selected_set.add(idx)
-        section_counts[section_path] = section_counts.get(section_path, 0) + 1
-
-    # Second pass to fill remaining topk if first pass cannot due to max_chunks_per_section constraint
-    for idx, score in zip(ordered_ids, ordered_scores):
-        if len(selected_ids) >= cfg.top_k:
-            break
-        if idx in selected_set:
-            continue
-        selected_ids.append(idx)
-        selected_scores.append(score)
-        selected_set.add(idx)
+    if not _metadata_selector_enabled(cfg):
+        return baseline
     
-    return selected_ids, selected_scores
+    objective_scores = _compute_objective_scores(cfg, ordered_ids, ordered_scores, metadata, chunks)
+    ranked_candidates = _rank_chunk_candidates(ordered_ids, objective_scores)
+    selected_ids, selected_scores = _greedy_selection_with_constraints(cfg, ranked_candidates, objective_scores, metadata)
 
-
+    return _backfill_selection(cfg, selected_ids, selected_scores, ranked_candidates, objective_scores)
 
 # -------------------------- Retrieval core ------------------------------
 
