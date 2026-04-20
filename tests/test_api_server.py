@@ -18,6 +18,22 @@ import json
 pytestmark = pytest.mark.unit
 
 
+def add_selector_config_defaults(mock_config):
+    """Populate metadata-selector fields expected by retrieval code."""
+    mock_config.selector_pool_size = 20
+    mock_config.use_section_diversity = False
+    mock_config.max_chunks_per_section = 2
+    mock_config.use_context_boosting = False
+    mock_config.neighbor_boost = 0.3
+    mock_config.context_boost_top_N = 5
+    mock_config.use_page_independence = False
+    mock_config.page_independence_penalty = 0.1
+    mock_config.use_redundancy_penalty = False
+    mock_config.redundancy_penalty = 0.2
+    mock_config.redundancy_threshold = 0.5
+    return mock_config
+
+
 # ====================== Pydantic Model Tests ======================
 
 class TestPydanticModels:
@@ -162,6 +178,7 @@ class TestChatEndpoint:
         mock_config.temperature = 0.2
         mock_config.max_gen_tokens = 300
         mock_config.gen_model = "mock_model.gguf"
+        add_selector_config_defaults(mock_config)
 
         # Create mock artifacts
         mock_artifacts = {
@@ -342,6 +359,7 @@ class TestTestChatEndpoint:
         mock_config.disable_chunks = False
         mock_config.top_k = 5
         mock_config.num_candidates = 60
+        add_selector_config_defaults(mock_config)
 
         mock_artifacts = {
             "chunks": ["chunk0", "chunk1", "chunk2"],
@@ -441,6 +459,7 @@ class TestStreamingEndpoint:
         mock_config.temperature = 0.2
         mock_config.max_gen_tokens = 300
         mock_config.gen_model = "mock_model.gguf"
+        add_selector_config_defaults(mock_config)
 
         mock_artifacts = {
             "chunks": ["chunk0", "chunk1", "chunk2"],
@@ -525,6 +544,7 @@ class TestRetrieveAndRank:
         mock_config = Mock()
         mock_config.top_k = 5
         mock_config.num_candidates = 60
+        add_selector_config_defaults(mock_config)
 
         mock_artifacts = {
             "chunks": ["c0", "c1", "c2", "c3", "c4"],
@@ -596,6 +616,7 @@ class TestAPIIntegration:
         mock_config.temperature = 0.2
         mock_config.max_gen_tokens = 100
         mock_config.gen_model = "test_model.gguf"
+        add_selector_config_defaults(mock_config)
 
         mock_artifacts = {
             "chunks": [f"Chunk content {i}" for i in range(5)],

@@ -40,6 +40,10 @@ class RAGConfig:
     use_page_independence: bool = False
     page_independence_penalty: float = 0.1
 
+    use_redundancy_penalty: bool = False
+    redundancy_penalty: float = 0.2
+    redundancy_threshold: float = 0.5
+
     # generation
     max_gen_tokens: int = 400
     gen_model: str = "models/qwen2.5-3b-instruct-q8_0.gguf"
@@ -88,6 +92,8 @@ class RAGConfig:
         assert self.context_boost_top_N >= 0, "context_boost_top_N must be >= 0"
         assert self.neighbor_boost >= 0, "neighbor_boost must be >= 0"
         assert self.page_independence_penalty >= 0, "page_independence_penalty must be >= 0"
+        assert self.redundancy_penalty >= 0, "redundancy_penalty must be >= 0"
+        assert 0 <= self.redundancy_threshold <= 1, "redundancy_threshold must be <= 0 and <= 1"
 
     # ---------- chunking + artifact name helpers ----------
 

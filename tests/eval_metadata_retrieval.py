@@ -180,17 +180,55 @@ def evaluate_config(benchmarks: list[dict[str, Any]], cfg: RAGConfig, label: str
 
 
 def main():
-    benchmark_path = Path("tests/metadata-retrieval-benchmarks.yaml")
+    benchmark_path = Path("tests/benchmarks.yaml")
     benchmarks = load_metadata_benchmarks(benchmark_path)
 
     base_cfg = RAGConfig()
 
     eval_configs = [
+        #---------------------------------------------------- BASELINE --------------------------------------------------------------#
         ("baseline_pool20", replace(base_cfg, use_section_diversity=False, selector_pool_size=20)),
+        #---------------------------------------------------- SECTION_DIVERSITY -----------------------------------------------------#
         ("max_chunks1_pool15", replace(base_cfg, use_section_diversity=True, max_chunks_per_section=1, selector_pool_size=15)),
         ("max_chunks1_pool20", replace(base_cfg, use_section_diversity=True, max_chunks_per_section=1, selector_pool_size=20)),
         ("max_chunks1_pool30", replace(base_cfg, use_section_diversity=True, max_chunks_per_section=1, selector_pool_size=30)),
-        ("max_chunks2_pool20", replace(base_cfg, use_section_diversity=True, max_chunks_per_section=2, selector_pool_size=20))
+        ("max_chunks2_pool20", replace(base_cfg, use_section_diversity=True, max_chunks_per_section=2, selector_pool_size=20)),
+        #---------------------------------------------------- CONTEXT_BOOSTING ------------------------------------------------------#
+        ("neigh_boost0.3_N5_pool15", replace(base_cfg, use_context_boosting=True, neighbor_boost=0.3, context_boost_top_N=5, selector_pool_size=15)),
+        ("neigh_boost0.3_N5_pool20", replace(base_cfg, use_context_boosting=True, neighbor_boost=0.3, context_boost_top_N=5, selector_pool_size=20)),
+        ("neigh_boost0.6_N5_pool15", replace(base_cfg, use_context_boosting=True, neighbor_boost=0.6, context_boost_top_N=5, selector_pool_size=15)),
+        ("neigh_boost0.6_N5_pool20", replace(base_cfg, use_context_boosting=True, neighbor_boost=0.6, context_boost_top_N=5, selector_pool_size=20)),
+        ("neigh_boost0.3_N10_pool15", replace(base_cfg, use_context_boosting=True, neighbor_boost=0.3, context_boost_top_N=10, selector_pool_size=20)),
+        #---------------------------------------------------- PAGE_INDEPENDENCE -----------------------------------------------------#
+        ("page_ind_penalty.1_pool15", replace(base_cfg, use_page_independence=True, page_independence_penalty=0.1, selector_pool_size=15)),
+        ("page_ind_penalty.1_pool20", replace(base_cfg, use_page_independence=True, page_independence_penalty=0.1, selector_pool_size=20)),
+        ("page_ind_penalty.3_pool15", replace(base_cfg, use_page_independence=True, page_independence_penalty=0.3, selector_pool_size=15)),
+        ("page_ind_penalty.3_pool20", replace(base_cfg, use_page_independence=True, page_independence_penalty=0.3, selector_pool_size=20)),
+        ("page_ind_penalty.1_pool30", replace(base_cfg, use_page_independence=True, page_independence_penalty=0.1, selector_pool_size=30)),
+        #---------------------------------------------------- REDUNDANCY_PENALTY ----------------------------------------------------#
+        ("redun_penalty.2_treshold.5_pool15", replace(base_cfg, use_redundancy_penalty=True, redundancy_penalty=0.2, redundancy_threshold=0.5, selector_pool_size=15)),
+        ("redun_penalty.2_treshold.5_pool20", replace(base_cfg, use_redundancy_penalty=True, redundancy_penalty=0.2, redundancy_threshold=0.5, selector_pool_size=20)),
+        ("redun_penalty.4_treshold.5_pool15", replace(base_cfg, use_redundancy_penalty=True, redundancy_penalty=0.4, redundancy_threshold=0.5, selector_pool_size=15)),
+        ("redun_penalty.4_treshold.5_pool20", replace(base_cfg, use_redundancy_penalty=True, redundancy_penalty=0.4, redundancy_threshold=0.5, selector_pool_size=20)),
+        ("redun_penalty.2_treshold.3_pool15", replace(base_cfg, use_redundancy_penalty=True, redundancy_penalty=0.2, redundancy_threshold=0.3, selector_pool_size=15)),
+        ("redun_penalty.2_treshold.7_pool15", replace(base_cfg, use_redundancy_penalty=True, redundancy_penalty=0.2, redundancy_threshold=0.7, selector_pool_size=15)),
+        #---------------------------------------------------- ALL CONSTRAINTS ----------------------------------------------------#
+        ("all_constraints_balanced", 
+         replace(base_cfg, use_section_diversity=True, use_context_boosting=True, use_page_independence=True, use_redundancy_penalty=True, 
+                 max_chunks_per_section=1, neighbor_boost=0.2, context_boost_top_N=5, page_independence_penalty=0.1, 
+                 redundancy_penalty=0.15, redundancy_threshold=0.5, selector_pool_size=15)),
+        ("all_constraints_context_heavy", 
+         replace(base_cfg, use_section_diversity=True, use_context_boosting=True, use_page_independence=True, use_redundancy_penalty=True, 
+                 max_chunks_per_section=1, neighbor_boost=0.3, context_boost_top_N=8, page_independence_penalty=0.1, 
+                 redundancy_penalty=0.15, redundancy_threshold=0.5, selector_pool_size=15)),
+        ("all_constraints_diversity_heavy", 
+         replace(base_cfg, use_section_diversity=True, use_context_boosting=True, use_page_independence=True, use_redundancy_penalty=True, 
+                 max_chunks_per_section=1, neighbor_boost=0.2, context_boost_top_N=5, page_independence_penalty=0.2, 
+                 redundancy_penalty=0.25, redundancy_threshold=0.45, selector_pool_size=20)),
+        ("all_constraints_recall_friendly", 
+         replace(base_cfg, use_section_diversity=True, use_context_boosting=True, use_page_independence=True, use_redundancy_penalty=True, 
+                 max_chunks_per_section=2, neighbor_boost=0.2, context_boost_top_N=5, page_independence_penalty=0.05, 
+                 redundancy_penalty=0.10, redundancy_threshold=0.60, selector_pool_size=15)),
     ]
 
     summaries = []
@@ -205,16 +243,16 @@ def main():
             f"avg_section_coverage={summary['avg_section_coverage']:.3f}, "
             f"avg_ground_truth_in_k={summary['avg_ground_truth_in_k']:.3f}"
         )
-        if summary['label'] == "baseline_pool20" or summary['label'] == "max_chunks1_pool15":
-            for result in summary['results']:
-                print(f"Results for {summary['label']}:")
-                print("=" * 80)
-                print(f"BenchmarkID: {result['benchmark_id']} \n"
-                      f"Selected Chunk Ids: {result['selected_chunk_ids']} \n"
-                      f"Ideal Chunk Ids: {result['ideal_retrieved_chunks']} \n"
-                      f"Section Coverage: {result['section_coverage']} \n"
-                      f"Ground Truth in k: {result['ground_truth_in_k']} \n"
-                      f"Ground Truth in Fused: {result['ground_truth_in_fused']}")
+        #if summary['label'] == "baseline_pool20" or summary['label'] == "max_chunks1_pool15":
+            #for result in summary['results']:
+                #print(f"Results for {summary['label']}:")
+                #print("=" * 80)
+                #print(f"BenchmarkID: {result['benchmark_id']} \n"
+                      #f"Selected Chunk Ids: {result['selected_chunk_ids']} \n"
+                      #f"Ideal Chunk Ids: {result['ideal_retrieved_chunks']} \n"
+                      #f"Section Coverage: {result['section_coverage']} \n"
+                      #f"Ground Truth in k: {result['ground_truth_in_k']} \n"
+                      #f"Ground Truth in Fused: {result['ground_truth_in_fused']}")
                 
     results_dir = Path("tests/results")
     results_dir.mkdir(parents=True, exist_ok=True)
