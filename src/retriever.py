@@ -35,12 +35,19 @@ def _get_embedder(model_name: str) -> CachedEmbedder:
 
 # -------------------------- Retriever helpers ------------------------------
 
+def _get_pages(idx: int, metadata: list[dict]) -> set[int]:
+    if idx < 0 or idx >= len(metadata):
+        return set()
+
+    pages = metadata[idx].get("page_numbers") or []
+    return {int(page) for page in pages}
+
 def _select_baseline_top_k(cfg: RAGConfig, ordered_ids: list[int], ordered_scores: list[float]) -> tuple[list[int], list[float]]:
     return ordered_ids[:cfg.top_k], ordered_scores[:cfg.top_k]
 
 def _metadata_selector_enabled(cfg: RAGConfig) -> bool:
     return (
-        cfg.use_section_diversity or cfg.use_context_boosting
+        cfg.use_section_diversity or cfg.use_context_boosting or cfg.use_page_independence
     )
 
 def _apply_context_boosting(cfg: RAGConfig, ordered_ids: list[int], ordered_scores: list[float],
@@ -49,6 +56,15 @@ def _apply_context_boosting(cfg: RAGConfig, ordered_ids: list[int], ordered_scor
         for neighbor in (idx-1, idx+1):
             if neighbor in objective_scores:
                 objective_scores[neighbor] += score * cfg.neighbor_boost
+
+def _compute_running_candidate_scores(cfg: RAGConfig, idx: int, base_score: float, metadata: list[dict], selected_pages: set[int]) -> float:
+    score = base_score
+
+    if cfg.use_page_independence:
+        candidate_pages = _get_pages(idx, metadata)
+        if candidate_pages & selected_pages:
+            score -= score * cfg.page_independence_penalty
+    return score
 
 def _compute_objective_scores(cfg: RAGConfig, ordered_ids: list[int], ordered_scores: list[float],
                               metadata: list[dict], chunks: list[str]) -> dict[int, float]:
@@ -72,42 +88,70 @@ def _passes_constraints(cfg: RAGConfig, idx: int, metadata: list[dict], section_
     return True
 
 def _greedy_selection_with_constraints(cfg: RAGConfig, ranked_candidates: list[int], objective_score: dict[int, float],
-                                       metadata: list[dict]) -> tuple[list[int], list[float]]:
+                                       metadata: list[dict]) -> tuple[list[int], list[float], set[int]]:
     selected_ids: list[int] = []
     selected_scores: list[float] = []
     section_counts: dict[str, int] = {}
+    selected_pages = set()
+    remaining_candidates = list(ranked_candidates)
 
-    for idx in ranked_candidates:
-        if len(selected_ids) >= cfg.top_k:
+    while remaining_candidates and len(selected_ids) < cfg.top_k:
+        best_idx = None
+        best_score = float('-inf')
+
+        for idx in remaining_candidates:
+            if not _passes_constraints(cfg, idx, metadata, section_counts):
+                continue
+
+            score = _compute_running_candidate_scores(cfg, idx, objective_score.get(idx, 0), metadata, selected_pages)
+
+            if score > best_score:
+                best_idx = idx
+                best_score = score
+
+        if best_idx is None:
             break
-        if idx < 0 or idx >= len(metadata):
-            continue
 
-        if not _passes_constraints(cfg, idx, metadata, section_counts):
-            continue
-        selected_ids.append(idx)
-        selected_scores.append(objective_score.get(idx, 0.0))
+        selected_ids.append(best_idx)
+        selected_scores.append(best_score)
+        remaining_candidates.remove(best_idx)
+
+        if cfg.use_page_independence:
+            selected_pages.update(_get_pages(best_idx, metadata))
 
         if cfg.use_section_diversity:
-            section_path = metadata[idx].get("section_path")
+            section_path = metadata[best_idx].get("section_path")
             if not section_path:
                 section_path = "missing_section"
             section_counts[section_path] = section_counts.get(section_path, 0) + 1
         
-    return selected_ids, selected_scores
+    return selected_ids, selected_scores, selected_pages
 
 def _backfill_selection(cfg: RAGConfig, selected_ids: list[int], selected_scores: list[float],
-                        ranked_candidates: list[int], objective_scores: dict[int, float]) -> tuple[list[int], list[float]]:
+                        ranked_candidates: list[int], objective_scores: dict[int, float], metadata: list[dict], selected_pages: set[int]) -> tuple[list[int], list[float]]:
     selected_set = set(selected_ids)
-    for idx in ranked_candidates:
-        if len(selected_set) >= cfg.top_k:
-            break
-        if idx in selected_set:
-            continue
+    remaining = list(ranked_candidates)
+    while remaining and len(selected_set) < cfg.top_k:
+        best_idx = None
+        best_score = float('-inf')
 
-        selected_ids.append(idx)
-        selected_scores.append(objective_scores.get(idx, 0))
-        selected_set.add(idx)
+        for idx in remaining:
+            if idx in selected_set:
+                continue
+
+            score = _compute_running_candidate_scores(cfg, idx, objective_scores.get(idx, 0), metadata, selected_pages)
+
+            if score > best_score:
+                best_score = score
+                best_idx = idx
+
+        selected_ids.append(best_idx)
+        selected_scores.append(best_score)
+        selected_set.add(best_idx)
+        remaining.remove(best_idx)
+
+        if cfg.use_page_independence:
+            selected_pages.update(_get_pages(best_idx, metadata))
     
     return selected_ids, selected_scores
 # -------------------------- Read artifacts -------------------------------
@@ -162,9 +206,9 @@ def filter_retrieved_chunks(cfg: RAGConfig, chunks: list[str], ordered_ids: list
     
     objective_scores = _compute_objective_scores(cfg, ordered_ids, ordered_scores, metadata, chunks)
     ranked_candidates = _rank_chunk_candidates(ordered_ids, objective_scores)
-    selected_ids, selected_scores = _greedy_selection_with_constraints(cfg, ranked_candidates, objective_scores, metadata)
+    selected_ids, selected_scores, selected_pages = _greedy_selection_with_constraints(cfg, ranked_candidates, objective_scores, metadata)
 
-    return _backfill_selection(cfg, selected_ids, selected_scores, ranked_candidates, objective_scores)
+    return _backfill_selection(cfg, selected_ids, selected_scores, ranked_candidates, objective_scores, metadata, selected_pages)
 
 # -------------------------- Retrieval core ------------------------------
 

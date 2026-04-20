@@ -37,6 +37,9 @@ class RAGConfig:
     neighbor_boost: float = 0.3
     context_boost_top_N: int = 5
 
+    use_page_independence: bool = False
+    page_independence_penalty: float = 0.1
+
     # generation
     max_gen_tokens: int = 400
     gen_model: str = "models/qwen2.5-3b-instruct-q8_0.gguf"
@@ -84,6 +87,7 @@ class RAGConfig:
         assert self.max_chunks_per_section > 0, "max chunks per section must be > 0"
         assert self.context_boost_top_N >= 0, "context_boost_top_N must be >= 0"
         assert self.neighbor_boost >= 0, "neighbor_boost must be >= 0"
+        assert self.page_independence_penalty >= 0, "page_independence_penalty must be >= 0"
 
     # ---------- chunking + artifact name helpers ----------
 
