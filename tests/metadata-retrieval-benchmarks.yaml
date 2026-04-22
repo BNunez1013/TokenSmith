@@ -1,4 +1,29 @@
 benchmarks:
+  - id: "database_schema"
+    level: 1
+    question: "What is a database schema?"
+    ideal_retrieved_chunks: [53, 54]
+    notes: "N/A"
+  - id: "primary_key"
+    level: 1
+    question: "What is a primary key"
+    ideal_retrieved_chunks: [55, 56, 57, 59]
+    notes: "N/A"
+  - id: "conflict_serializability"
+    level: 1
+    question: "What is conflict serializability?"
+    ideal_retrieved_chunks: [1065, 1066, 1067, 1068]
+    notes: "N/A"
+  - id: "buffer_manager"
+    level: 1
+    question: "What is the buffer manager?"
+    ideal_retrieved_chunks: [780, 781, 782]
+    notes: "N/A"
+  - id: "aries_definition"
+    level: 1
+    question: "What is AIRES recovery?"
+    ideal_retrieved_chunks: [1242, 1243, 1244, 1245, 1246]
+    notes: "N/A"
   - id: "concurrency_control"
     level: 2
     question: "What are key differences between locked based protocols and timestamp based protocols?"
@@ -34,4 +59,24 @@ benchmarks:
     question: "Contrast the goals of Online Transaction Processing and data analytics"
     ideal_retrieved_chunks: [661, 662, 663, 1661]
     notes: "Answer spans multiple sections across large distances, section diversity should perform better"
+  - id: "cc_protocols_tradeoffs"
+    level: 3
+    question: "How do lock-based, timestamp-based, and validation-based concurrency-control protocols differ in how they ensure correctness and what tradeoffs do they make?"
+    ideal_retrieved_chunks: [1087, 1089, 1093, 1094, 1096, 1125, 1127, 1128, 1130, 1132, 1134]
+    notes: "N/A"
+  - id: "recovery_aries_synthesis"
+    level: 3
+    question: "How do logging, checkpointing, and ARIES work together to support crash recovery, and how does ARIES improve on the basic recovery approach?"
+    ideal_retrieved_chunks: [1209, 1210, 1211, 1216, 1223, 1235, 1236, 1238, 1242, 1243, 1247, 1248, 1249, 1250]
+    notes: "N/A"
+  - id: "join_processing_cost_indexes"
+    level: 3
+    question: "How do join-processing strategies, cost estimation, and index availability influence query execution plans?"
+    ideal_retrieved_chunks: [894, 897, 914, 915, 920, 921, 922, 867, 868, 1000, 1001, 1006, 1007, 1008]
+    notes: "N/A"
+  - id: "transactions_isolation_recovery"
+    level: 3
+    question: "How do transactions, isolation mechanisms, and recovery techniques work together to ensure correctness in database systems?"
+    ideal_retrieved_chunks: [1056, 1057, 1059, 1061, 1072, 1073, 1075, 1076, 1209, 1210, 1211, 1212]
+    notes: "N/A"
 

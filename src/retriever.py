@@ -215,8 +215,10 @@ def get_page_numbers(chunk_indices: list[int], metadata: list[dict]) -> dict[int
 # -------------------------- Filtering logic -----------------------------
 
 def filter_retrieved_chunks(cfg: RAGConfig, chunks: list[str], ordered_ids: list[int], 
-                            ordered_scores: list[float], metadata: list[dict] | None = None, ) -> tuple[list[int], list[float]]:
+                            ordered_scores: list[float], metadata: list[dict] | None = None, effective_topk: int = 0) -> tuple[list[int], list[float]]:
     
+    if effective_topk != 0:
+        cfg.top_k = effective_topk
     baseline = _select_baseline_top_k(cfg, ordered_ids, ordered_scores)
 
     if metadata is None or len(ordered_ids) != len(ordered_scores):

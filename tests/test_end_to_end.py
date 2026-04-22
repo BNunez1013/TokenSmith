@@ -38,7 +38,18 @@ def test_end_to_end_pipeline_stubbed():
         chunk_mode="recursive_sections",
         use_hyde=False,
         disable_chunks=False,
-        rerank_mode="none"
+        rerank_mode="none",
+        use_section_diversity=False,
+        selector_pool_size=5,
+        max_chunks_per_section=1,
+        use_context_boosting=False,
+        neighbor_boost=0.3,
+        context_boost_top_N=5,
+        use_page_independence=False,
+        page_independence_penalty=.1,
+        use_redundancy_penalty=False,
+        redundancy_penalty=.2,
+        redundancy_threshold=.5
     )
     
     args = argparse.Namespace(

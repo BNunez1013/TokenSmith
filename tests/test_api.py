@@ -659,11 +659,12 @@ class TestFilterRetrievedChunks:
         cfg = RAGConfig(top_k=3)
         chunks = ["c0", "c1", "c2", "c3", "c4"]
         ordered = [4, 2, 0, 1, 3]  # indices in ranked order
+        scores = [.9, .75, .6, .58, .1]
         
-        result = filter_retrieved_chunks(cfg, chunks, ordered)
+        selected_ids, selected_scores = filter_retrieved_chunks(cfg, chunks, ordered, scores)
         
-        assert len(result) == 3
-        assert result == [4, 2, 0]
+        assert len(selected_ids) == 3
+        assert selected_ids == [4, 2, 0]
 
 
 # ====================== Get Page Numbers Tests ======================

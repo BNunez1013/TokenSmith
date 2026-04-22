@@ -139,7 +139,7 @@ def _retrieve_and_rank(query: str, top_k: Optional[int] = None, selector_pool_si
         ordered_ids = ordered_ids[:_config.selector_pool_size]
         ordered_scores = ordered_scores[:_config.selector_pool_size]
 
-    topk_indexes, topk_indexes_scores = filter_retrieved_chunks(_config, chunks, ordered_ids, ordered_scores, _artifacts.get("meta"))
+    topk_indexes, topk_indexes_scores = filter_retrieved_chunks(_config, chunks, ordered_ids, ordered_scores, _artifacts.get("meta"), effective_top_k)
     return topk_indexes, topk_indexes_scores
 
 @asynccontextmanager

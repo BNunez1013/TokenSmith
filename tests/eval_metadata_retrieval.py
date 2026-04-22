@@ -24,6 +24,7 @@ class RetrievalResult(TypedDict):
 class BenchmarkResult(TypedDict):
     benchmark_id: str
     question: str
+    level: int
     selected_chunk_ids: list[int]
     selected_scores: list[float]
     selected_sections: list[str]
@@ -35,9 +36,9 @@ class BenchmarkResult(TypedDict):
 
 class ConfigEvaluationResult(TypedDict):
     label: str
-    avg_section_coverage: float
-    avg_ground_truth_in_k: float
-    results: list[BenchmarkResult]
+    avg_section_coverage: list[float]
+    avg_ground_truth_in_k: list[float]
+    results: list[list[BenchmarkResult]]
 
 def load_metadata_benchmarks(path: str | Path) -> list[dict]:
     path = Path(path)
@@ -128,11 +129,12 @@ def compute_ground_truth_in_fused(fused_chunk_ids: list[ChunkID], ideal_ids: lis
 
 def evaluate_config(benchmarks: list[dict[str, Any]], cfg: RAGConfig, label: str) -> ConfigEvaluationResult:
     chunks, metadata, retrievers, ranker = build_retrieval_pipeline(cfg=cfg)
-    results: list[BenchmarkResult] = []
+    results: list[list[BenchmarkResult]] = [[], [], []]
 
     for benchmark in benchmarks:
         question = benchmark["question"]
         ideal_ids = benchmark["ideal_retrieved_chunks"]
+        level = benchmark["level"]
 
         retrieval_result = retrieve_chunks_for_query(
             question=question,
@@ -147,9 +149,10 @@ def evaluate_config(benchmarks: list[dict[str, Any]], cfg: RAGConfig, label: str
         ground_truth_in_k = compute_ground_truth_in_k(retrieval_result["selected_chunk_ids"], ideal_ids)
         ground_truth_in_fused = compute_ground_truth_in_fused(retrieval_result["fused_chunk_ids"], ideal_ids)
 
-        results.append({
+        results[level-1].append({
             "benchmark_id": benchmark["id"],
             "question": question,
+            "level": level,
             "selected_chunk_ids": retrieval_result["selected_chunk_ids"],
             "selected_scores": retrieval_result["selected_scores"],
             "selected_sections": retrieval_result["selected_sections"],
@@ -163,13 +166,16 @@ def evaluate_config(benchmarks: list[dict[str, Any]], cfg: RAGConfig, label: str
     if not results:
         return {
             "label": label,
-            "avg_section_coverage": 0.0,
-            "avg_ground_truth_in_k": 0.0,
+            "avg_section_coverage": [0.0, 0.0, 0.0],
+            "avg_ground_truth_in_k": [0.0, 0.0, 0.0],
             "results": []
         }
     
-    avg_section_coverage = sum(result["section_coverage"] for result in results) / len(results)
-    avg_ground_truth_in_k = sum(result["ground_truth_in_k"] for result in results) / len(results)
+    avg_section_coverage = [0.0, 0.0, 0.0]
+    avg_ground_truth_in_k = [0.0, 0.0, 0.0]
+    for idx, level_result in enumerate(results):
+        avg_section_coverage[idx] = sum(result["section_coverage"] for result in level_result) / len(level_result)
+        avg_ground_truth_in_k[idx] = sum(result["ground_truth_in_k"] for result in level_result) / len(level_result)
 
     return {
         "label": label,
@@ -180,7 +186,7 @@ def evaluate_config(benchmarks: list[dict[str, Any]], cfg: RAGConfig, label: str
 
 
 def main():
-    benchmark_path = Path("tests/benchmarks.yaml")
+    benchmark_path = Path("tests/metadata-retrieval-benchmarks.yaml")
     benchmarks = load_metadata_benchmarks(benchmark_path)
 
     base_cfg = RAGConfig()
@@ -238,11 +244,13 @@ def main():
     print("\nMetadata Retrieval Evaluation")
     print("=" * 80)
     for summary in summaries:
-        print(
-            f"{summary['label']}: "
-            f"avg_section_coverage={summary['avg_section_coverage']:.3f}, "
-            f"avg_ground_truth_in_k={summary['avg_ground_truth_in_k']:.3f}"
-        )
+        print(f"{summary['label']}")
+        for i in range(len(summary['avg_section_coverage'])):
+            print("=" * 40, f" Level {i+1} ", "=" * 40)
+            print(
+                f"avg_section_coverage={summary['avg_section_coverage'][i]:.3f}, "
+                f"avg_ground_truth_in_k={summary['avg_ground_truth_in_k'][i]:.3f}"
+            )
         #if summary['label'] == "baseline_pool20" or summary['label'] == "max_chunks1_pool15":
             #for result in summary['results']:
                 #print(f"Results for {summary['label']}:")
